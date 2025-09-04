@@ -1363,6 +1363,7 @@ class ProcessorMixin:
         split_by_character_only: bool = False,
         doc_id: str | None = None,
         display_stats: bool = None,
+        force_reprocess: bool = False,
     ):
         """
         Insert content list directly without document parsing
@@ -1383,6 +1384,7 @@ class ProcessorMixin:
             split_by_character_only: If True, split only by the specified character
             doc_id: Optional document ID, if not provided will be generated from content
             display_stats: Whether to display content statistics (defaults to config.display_content_stats)
+            force_reprocess: If True, forces reprocessing of documents even if they already exist in storage
 
         Note:
             - img_path must be an absolute path to the image file
@@ -1403,6 +1405,37 @@ class ProcessorMixin:
         # Generate doc_id based on content if not provided
         if doc_id is None:
             doc_id = self._generate_content_based_doc_id(content_list)
+
+        # Handle force_reprocess: clean existing doc_id from storage to allow reprocessing
+        if force_reprocess and doc_id:
+            self.logger.info(f"Force reprocess enabled for doc_id: {doc_id}")
+            try:
+                # Check if document exists in doc_status
+                await self.lightrag.doc_status.initialize()
+                existing_doc = await self.lightrag.doc_status.get_by_id(doc_id)
+                
+                if existing_doc:
+                    self.logger.info(f"Removing existing document from storage: {doc_id}")
+                    # Remove from doc_status to bypass filter_keys()
+                    await self.lightrag.doc_status.delete([doc_id])
+                    
+                    # Also remove from full_docs if it exists to ensure clean reprocessing
+                    try:
+                        await self.lightrag.full_docs.initialize()
+                        existing_full_doc = await self.lightrag.full_docs.get_by_id(doc_id)
+                        if existing_full_doc:
+                            self.logger.info(f"Removing existing document from full_docs: {doc_id}")
+                            await self.lightrag.full_docs.delete([doc_id])
+                    except Exception as e:
+                        self.logger.warning(f"Could not clean full_docs for {doc_id}: {e}")
+                        
+                    self.logger.info(f"Storage cleaned for reprocessing: {doc_id}")
+                else:
+                    self.logger.info(f"Document {doc_id} not found in storage, proceeding with normal processing")
+                    
+            except Exception as e:
+                self.logger.error(f"Error during force_reprocess cleanup for {doc_id}: {e}")
+                raise
 
         # Display content statistics if requested
         if display_stats:
