@@ -22,6 +22,7 @@ Este archivo contiene las reglas críticas que DEBES seguir siempre al trabajar 
 - ✅ **Testing**: Ejecutar tests ANTES y DESPUÉS de cambios
 - ✅ **Backup**: De configuraciones y datos críticos
 - ✅ **Un solo task**: Solo UNA tarea en in_progress a la vez
+- ✅ **UTF-8 encoding**: SIEMPRE usar `export PYTHONIOENCODING=utf-8` antes de ejecutar scripts Python con emojis/caracteres especiales en Windows
 
 ### 3. CHECKPOINTS OBLIGATORIOS - DETENER Y ESPERAR APROBACIÓN
 - [ ] **FASE 0**: Setup inicial → **🛑 STOP**
@@ -52,6 +53,9 @@ git push origin $(git branch --show-current)
 ## 🛠️ COMANDOS DE VALIDACIÓN
 
 ```bash
+# ⚠️ IMPORTANTE: En Windows, SIEMPRE usar UTF-8 encoding para evitar errores con emojis/caracteres especiales
+export PYTHONIOENCODING=utf-8
+
 # Verificar cumplimiento de metodología
 python project_status.py
 
@@ -59,7 +63,7 @@ python project_status.py
 python test_environment/01_pretest_requirements.py
 
 # Verificar tests
-python test_environment/03_post_validation_tests.py
+export PYTHONIOENCODING=utf-8 && python test_environment/03_post_validation_tests.py
 
 # Verificar calidad de código
 ruff check .
