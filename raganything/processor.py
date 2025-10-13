@@ -679,6 +679,60 @@ class ProcessorMixin:
         # Use LightRAG's concurrency control
         semaphore = asyncio.Semaphore(getattr(self.lightrag, "max_parallel_insert", 2))
 
+        # Stage 0: Image Deduplication (if enabled and images present)
+        image_dedup_map = {}  # Maps duplicate image paths to original image paths
+        unique_image_indices = set()  # Indices of unique images
+
+        # Check if deduplication is enabled and we have images
+        enable_dedup = getattr(self.config, 'enable_image_deduplication', True)
+        dedup_threshold = getattr(self.config, 'image_dedup_threshold', 5)
+
+        if enable_dedup:
+            # Separate images from other content types
+            image_items = [(i, item) for i, item in enumerate(multimodal_items) if item.get("type") == "image"]
+
+            if image_items:
+                from raganything.utils import ImageDeduplicator
+
+                self.logger.info(f"Stage 0: Deduplicating {len(image_items)} images (threshold={dedup_threshold})...")
+
+                deduplicator = ImageDeduplicator(hash_size=8, similarity_threshold=dedup_threshold)
+
+                # Extract image paths
+                image_paths = []
+                for idx, item in image_items:
+                    img_path = item.get("img_path")
+                    if img_path and Path(img_path).exists():
+                        image_paths.append((idx, Path(img_path)))
+
+                # Deduplicate images
+                for idx, img_path in image_paths:
+                    is_dup, original_path = deduplicator.is_duplicate(img_path)
+
+                    if is_dup:
+                        # Map duplicate to original
+                        image_dedup_map[idx] = str(original_path)
+                    else:
+                        # Mark as unique (needs VLM processing)
+                        unique_image_indices.add(idx)
+
+                dedup_stats = {
+                    'total_images': len(image_items),
+                    'unique': len(unique_image_indices),
+                    'duplicates': len(image_dedup_map)
+                }
+
+                if dedup_stats['duplicates'] > 0:
+                    reduction_pct = (dedup_stats['duplicates'] / dedup_stats['total_images'] * 100)
+                    self.logger.info(
+                        f"Image deduplication: {dedup_stats['total_images']} total, "
+                        f"{dedup_stats['unique']} unique, "
+                        f"{dedup_stats['duplicates']} duplicates "
+                        f"({reduction_pct:.1f}% reduction in VLM calls)"
+                    )
+                else:
+                    self.logger.info("No duplicate images found")
+
         # Stage 1: Concurrent generation of descriptions using correct processors for each type
         async def process_single_item_with_correct_processor(
             item: Dict[str, Any], index: int, file_path: str
@@ -687,6 +741,27 @@ class ProcessorMixin:
             async with semaphore:
                 try:
                     content_type = item.get("type", "unknown")
+
+                    # Skip VLM processing for duplicate images
+                    if content_type == "image" and index in image_dedup_map:
+                        self.logger.debug(f"Skipping duplicate image at index {index} (will inherit description)")
+                        return {
+                            "index": index,
+                            "content_type": content_type,
+                            "description": None,  # Will be filled in Stage 1.5
+                            "entity_info": None,  # Will be filled in Stage 1.5
+                            "original_item": item,
+                            "item_info": {
+                                "page_idx": item.get("page_idx", 0),
+                                "index": index,
+                                "type": content_type,
+                            },
+                            "chunk_order_index": existing_chunks_count + index,
+                            "processor": None,
+                            "file_path": file_path,
+                            "is_duplicate": True,
+                            "original_image_path": image_dedup_map[index],
+                        }
 
                     # Select the correct processor based on content type
                     processor = get_processor_for_type(
@@ -726,6 +801,7 @@ class ProcessorMixin:
                         "chunk_order_index": existing_chunks_count + index,
                         "processor": processor,  # Keep reference to the processor used
                         "file_path": file_path,  # Add file_path to the result
+                        "is_duplicate": False,
                     }
 
                 except Exception as e:
@@ -760,6 +836,42 @@ class ProcessorMixin:
         self.logger.info(
             f"Generated descriptions for {len(multimodal_data_list)}/{len(multimodal_items)} multimodal items using correct processors"
         )
+
+        # Stage 1.5: Propagate descriptions from unique images to duplicates
+        if image_dedup_map:
+            self.logger.info(f"Stage 1.5: Propagating descriptions to {len(image_dedup_map)} duplicate images...")
+
+            # Build lookup: original_image_path -> result data
+            unique_image_data = {}
+            for result in multimodal_data_list:
+                if result.get('content_type') == 'image' and not result.get('is_duplicate'):
+                    img_path = result['original_item'].get('img_path')
+                    if img_path:
+                        unique_image_data[str(img_path)] = {
+                            'description': result['description'],
+                            'entity_info': result['entity_info'],
+                            'processor': result.get('processor')
+                        }
+
+            # Propagate to duplicates
+            propagated_count = 0
+            for result in multimodal_data_list:
+                if result.get('is_duplicate'):
+                    original_path = result.get('original_image_path')
+                    if original_path and original_path in unique_image_data:
+                        source_data = unique_image_data[original_path]
+                        result['description'] = source_data['description']
+                        result['entity_info'] = source_data['entity_info']
+                        result['processor'] = source_data['processor']
+                        propagated_count += 1
+                        self.logger.debug(
+                            f"Propagated description to duplicate at index {result['index']} "
+                            f"from original: {Path(original_path).name}"
+                        )
+
+            self.logger.info(
+                f"Successfully propagated descriptions to {propagated_count}/{len(image_dedup_map)} duplicate images"
+            )
 
         # Stage 2: Convert to LightRAG chunks format
         lightrag_chunks = self._convert_to_lightrag_chunks_type_aware(
