@@ -3,24 +3,35 @@
 """
 Procesamiento completo del PDF con Docling
 Genera contenido real para validación con Post-Tests
+
+Uso:
+    python docling_full_processing.py <pdf_path> [output_dir]
 """
 
+import sys
 import json
 import time
 from pathlib import Path
 from datetime import datetime
 
-def process_pdf_with_docling():
+def process_pdf_with_docling(pdf_path=None, output_dir=None):
     """Procesamiento completo del PDF usando Docling"""
-    
+
     print("=" * 60)
     print("DOCLING FULL PDF PROCESSING")
     print("=" * 60)
     print(f"Start time: {datetime.now().strftime('%H:%M:%S')}")
-    
-    # Configurar paths
-    pdf_path = Path("C:/Users/Gamer/Dev/RAG-Anything/test_environment/input/Catalogo_de_Servicios_y_Prestaciones-6.pdf")
-    output_dir = Path("C:/Users/Gamer/Dev/RAG-Anything/test_environment/output")
+
+    # Configurar paths (usar argumentos o defaults)
+    if pdf_path is None:
+        pdf_path = Path("C:/Users/Gamer/Dev/RAG-Anything/test_environment/input/Catalogo_de_Servicios_y_Prestaciones-6.pdf")
+    else:
+        pdf_path = Path(pdf_path)
+
+    if output_dir is None:
+        output_dir = Path("C:/Users/Gamer/Dev/RAG-Anything/test_environment/output")
+    else:
+        output_dir = Path(output_dir)
     
     # Verificar input
     if not pdf_path.exists():
@@ -252,11 +263,33 @@ def process_pdf_with_docling():
         return False
 
 if __name__ == "__main__":
-    success = process_pdf_with_docling()
-    
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Process PDF document using Docling Python API"
+    )
+    parser.add_argument(
+        "pdf_path",
+        nargs="?",
+        default=None,
+        help="Path to PDF file to process"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory for processed content"
+    )
+
+    args = parser.parse_args()
+
+    success = process_pdf_with_docling(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir
+    )
+
     if success:
         print("\nDOCLING PROCESSING: SUCCESS")
     else:
         print("\nDOCLING PROCESSING: FAILED")
-    
+
     exit(0 if success else 1)
