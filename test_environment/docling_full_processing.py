@@ -230,12 +230,12 @@ def process_pdf_with_docling(pdf_path=None, output_dir=None):
         print(f"Files generated: 3 (MD: {md_file.stat().st_size/1024:.1f}KB, JSON: {json_file.stat().st_size/1024:.1f}KB)")
         print(f"End time: {datetime.now().strftime('%H:%M:%S')}")
         
-        # Verificar criterios básicos
+        # Verificar criterios básicos (genéricos para cualquier PDF)
         success_indicators = {
-            "sufficient_content": word_count >= 1000,  # Al menos 1000 palabras
-            "legal_structure": articulos_count >= 5,   # Al menos 5 artículos
-            "document_elements": anexo_count >= 1,     # Al menos 1 anexo
-            "files_created": len(list(output_dir.glob("*"))) >= 3
+            "sufficient_content": word_count >= 100,  # Al menos 100 palabras
+            "images_or_tables": images_extracted > 0 or tables_extracted > 0,  # Contenido multimodal
+            "files_created": len(list(output_dir.glob("*"))) >= 3,
+            "metadata_generated": metadata_file.exists()
         }
         
         success_count = sum(success_indicators.values())
