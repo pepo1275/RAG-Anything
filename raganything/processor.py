@@ -722,14 +722,28 @@ class ProcessorMixin:
                     'duplicates': len(image_dedup_map)
                 }
 
+                # Store metrics in instance for later doc_status integration
+                self._dedup_metrics = dedup_stats.copy()
+
                 if dedup_stats['duplicates'] > 0:
                     reduction_pct = (dedup_stats['duplicates'] / dedup_stats['total_images'] * 100)
-                    self.logger.info(
-                        f"Image deduplication: {dedup_stats['total_images']} total, "
-                        f"{dedup_stats['unique']} unique, "
-                        f"{dedup_stats['duplicates']} duplicates "
-                        f"({reduction_pct:.1f}% reduction in VLM calls)"
-                    )
+                    vlm_calls_saved = dedup_stats['duplicates']
+
+                    # Estimate cost savings (assuming $0.002 per VLM call for gpt-4o)
+                    cost_per_call = 0.002
+                    estimated_cost_savings = vlm_calls_saved * cost_per_call
+
+                    # Enhanced logging with detailed metrics banner
+                    self.logger.info("="*80)
+                    self.logger.info("IMAGE DEDUPLICATION METRICS")
+                    self.logger.info("="*80)
+                    self.logger.info(f"Total Images:              {dedup_stats['total_images']}")
+                    self.logger.info(f"Unique Images:             {dedup_stats['unique']}")
+                    self.logger.info(f"Duplicate Images:          {dedup_stats['duplicates']}")
+                    self.logger.info(f"Reduction Percentage:      {reduction_pct:.1f}%")
+                    self.logger.info(f"VLM Calls Saved:           {vlm_calls_saved}")
+                    self.logger.info(f"Estimated Cost Savings:    ${estimated_cost_savings:.4f}")
+                    self.logger.info("="*80)
                 else:
                     self.logger.info("No duplicate images found")
 
@@ -1260,17 +1274,27 @@ class ProcessorMixin:
                 updated_chunks_list = existing_chunks_list + chunk_ids
                 updated_chunks_count = existing_chunks_count + len(chunk_ids)
 
-                # Update document status with integrated chunk list
-                await self.lightrag.doc_status.upsert(
-                    {
-                        doc_id: {
-                            **current_doc_status,  # Keep existing fields
-                            "chunks_list": updated_chunks_list,  # Integrated chunks list
-                            "chunks_count": updated_chunks_count,  # Updated total count
-                            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-                        }
+                # Prepare doc_status update
+                doc_status_update = {
+                    **current_doc_status,  # Keep existing fields
+                    "chunks_list": updated_chunks_list,  # Integrated chunks list
+                    "chunks_count": updated_chunks_count,  # Updated total count
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                }
+
+                # Add deduplication metrics if available
+                if hasattr(self, '_dedup_metrics') and self._dedup_metrics:
+                    reduction_pct = (self._dedup_metrics['duplicates'] / self._dedup_metrics['total_images'] * 100) if self._dedup_metrics['total_images'] > 0 else 0
+                    doc_status_update["deduplication_metrics"] = {
+                        "total_images": self._dedup_metrics['total_images'],
+                        "unique_images": self._dedup_metrics['unique'],
+                        "duplicate_images": self._dedup_metrics['duplicates'],
+                        "reduction_percentage": round(reduction_pct, 2),
+                        "vlm_calls_saved": self._dedup_metrics['duplicates']
                     }
-                )
+
+                # Update document status with integrated chunk list
+                await self.lightrag.doc_status.upsert({doc_id: doc_status_update})
 
                 # Ensure doc_status update is persisted to disk
                 await self.lightrag.doc_status.index_done_callback()
