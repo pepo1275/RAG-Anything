@@ -163,13 +163,13 @@ async def initialize_rag(working_dir: str, api_key: str, base_url: str = None) -
 
     # Define embedding function
     # IMPORTANT: Must match the embedding model used when creating the KG
-    # Check vdb_chunks.json "embedding_dim" or .env EMBEDDING_MODEL to verify
+    # This validation RAG was created with text-embedding-3-large (3072 dims)
     embedding_func = EmbeddingFunc(
-        embedding_dim=1536,  # text-embedding-3-small
+        embedding_dim=3072,  # text-embedding-3-large
         max_token_size=8192,
         func=lambda texts: openai_embed(
             texts,
-            model="text-embedding-3-small",  # Must match original KG
+            model="text-embedding-3-large",  # Must match original KG
             api_key=api_key,
             base_url=base_url,
         ),
