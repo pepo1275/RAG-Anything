@@ -263,10 +263,44 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
 
             return
 
+        # Auto-create model functions from LiteLLM if enabled and not manually provided
+        if self.llm_model_func is None and self.config.use_litellm:
+            try:
+                from raganything.litellm_adapter import LiteLLMAdapter, LiteLLMConfig
+
+                # Load config from environment if not provided
+                litellm_config = self.config.litellm_config
+                if litellm_config is None:
+                    litellm_config = LiteLLMConfig.from_env()
+
+                # Create adapter and functions
+                adapter = LiteLLMAdapter(litellm_config)
+                self.llm_model_func = adapter.create_llm_func()
+                self.embedding_func = adapter.create_embedding_func()
+                self.vision_model_func = adapter.create_vision_func()
+
+                self.logger.info("LiteLLM auto-initialized:")
+                self.logger.info(f"  LLM: {litellm_config.llm_model}")
+                self.logger.info(
+                    f"  Embedding: {litellm_config.embedding_model} (dim={litellm_config.embedding_dim})"
+                )
+                if litellm_config.vision_model:
+                    self.logger.info(f"  Vision: {litellm_config.vision_model}")
+
+            except ImportError:
+                self.logger.warning(
+                    "LiteLLM not installed. Install with: pip install litellm"
+                )
+            except Exception as e:
+                self.logger.error(f"LiteLLM initialization failed: {e}")
+
         # Validate required functions for creating new LightRAG instance
         if self.llm_model_func is None:
             raise ValueError(
-                "llm_model_func must be provided when LightRAG is not pre-initialized"
+                "llm_model_func must be provided when LightRAG is not pre-initialized. "
+                "Either:\n"
+                "  1. Provide llm_model_func manually, OR\n"
+                "  2. Enable LiteLLM: RAGAnything(config=RAGAnythingConfig(use_litellm=True))"
             )
         if self.embedding_func is None:
             raise ValueError(
