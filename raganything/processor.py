@@ -679,6 +679,74 @@ class ProcessorMixin:
         # Use LightRAG's concurrency control
         semaphore = asyncio.Semaphore(getattr(self.lightrag, "max_parallel_insert", 2))
 
+        # Stage 0: Image Deduplication (if enabled and images present)
+        image_dedup_map = {}  # Maps duplicate image paths to original image paths
+        unique_image_indices = set()  # Indices of unique images
+
+        # Check if deduplication is enabled and we have images
+        enable_dedup = getattr(self.config, 'enable_image_deduplication', True)
+        dedup_threshold = getattr(self.config, 'image_dedup_threshold', 5)
+
+        if enable_dedup:
+            # Separate images from other content types
+            image_items = [(i, item) for i, item in enumerate(multimodal_items) if item.get("type") == "image"]
+
+            if image_items:
+                from raganything.utils import ImageDeduplicator
+
+                self.logger.info(f"Stage 0: Deduplicating {len(image_items)} images (threshold={dedup_threshold})...")
+
+                deduplicator = ImageDeduplicator(hash_size=8, similarity_threshold=dedup_threshold)
+
+                # Extract image paths
+                image_paths = []
+                for idx, item in image_items:
+                    img_path = item.get("img_path")
+                    if img_path and Path(img_path).exists():
+                        image_paths.append((idx, Path(img_path)))
+
+                # Deduplicate images
+                for idx, img_path in image_paths:
+                    is_dup, original_path = deduplicator.is_duplicate(img_path)
+
+                    if is_dup:
+                        # Map duplicate to original
+                        image_dedup_map[idx] = str(original_path)
+                    else:
+                        # Mark as unique (needs VLM processing)
+                        unique_image_indices.add(idx)
+
+                dedup_stats = {
+                    'total_images': len(image_items),
+                    'unique': len(unique_image_indices),
+                    'duplicates': len(image_dedup_map)
+                }
+
+                # Store metrics in instance for later doc_status integration
+                self._dedup_metrics = dedup_stats.copy()
+
+                if dedup_stats['duplicates'] > 0:
+                    reduction_pct = (dedup_stats['duplicates'] / dedup_stats['total_images'] * 100)
+                    vlm_calls_saved = dedup_stats['duplicates']
+
+                    # Estimate cost savings (assuming $0.002 per VLM call for gpt-4o)
+                    cost_per_call = 0.002
+                    estimated_cost_savings = vlm_calls_saved * cost_per_call
+
+                    # Enhanced logging with detailed metrics banner
+                    self.logger.info("="*80)
+                    self.logger.info("IMAGE DEDUPLICATION METRICS")
+                    self.logger.info("="*80)
+                    self.logger.info(f"Total Images:              {dedup_stats['total_images']}")
+                    self.logger.info(f"Unique Images:             {dedup_stats['unique']}")
+                    self.logger.info(f"Duplicate Images:          {dedup_stats['duplicates']}")
+                    self.logger.info(f"Reduction Percentage:      {reduction_pct:.1f}%")
+                    self.logger.info(f"VLM Calls Saved:           {vlm_calls_saved}")
+                    self.logger.info(f"Estimated Cost Savings:    ${estimated_cost_savings:.4f}")
+                    self.logger.info("="*80)
+                else:
+                    self.logger.info("No duplicate images found")
+
         # Stage 1: Concurrent generation of descriptions using correct processors for each type
         async def process_single_item_with_correct_processor(
             item: Dict[str, Any], index: int, file_path: str
@@ -687,6 +755,27 @@ class ProcessorMixin:
             async with semaphore:
                 try:
                     content_type = item.get("type", "unknown")
+
+                    # Skip VLM processing for duplicate images
+                    if content_type == "image" and index in image_dedup_map:
+                        self.logger.debug(f"Skipping duplicate image at index {index} (will inherit description)")
+                        return {
+                            "index": index,
+                            "content_type": content_type,
+                            "description": None,  # Will be filled in Stage 1.5
+                            "entity_info": None,  # Will be filled in Stage 1.5
+                            "original_item": item,
+                            "item_info": {
+                                "page_idx": item.get("page_idx", 0),
+                                "index": index,
+                                "type": content_type,
+                            },
+                            "chunk_order_index": existing_chunks_count + index,
+                            "processor": None,
+                            "file_path": file_path,
+                            "is_duplicate": True,
+                            "original_image_path": image_dedup_map[index],
+                        }
 
                     # Select the correct processor based on content type
                     processor = get_processor_for_type(
@@ -726,6 +815,7 @@ class ProcessorMixin:
                         "chunk_order_index": existing_chunks_count + index,
                         "processor": processor,  # Keep reference to the processor used
                         "file_path": file_path,  # Add file_path to the result
+                        "is_duplicate": False,
                     }
 
                 except Exception as e:
@@ -760,6 +850,42 @@ class ProcessorMixin:
         self.logger.info(
             f"Generated descriptions for {len(multimodal_data_list)}/{len(multimodal_items)} multimodal items using correct processors"
         )
+
+        # Stage 1.5: Propagate descriptions from unique images to duplicates
+        if image_dedup_map:
+            self.logger.info(f"Stage 1.5: Propagating descriptions to {len(image_dedup_map)} duplicate images...")
+
+            # Build lookup: original_image_path -> result data
+            unique_image_data = {}
+            for result in multimodal_data_list:
+                if result.get('content_type') == 'image' and not result.get('is_duplicate'):
+                    img_path = result['original_item'].get('img_path')
+                    if img_path:
+                        unique_image_data[str(img_path)] = {
+                            'description': result['description'],
+                            'entity_info': result['entity_info'],
+                            'processor': result.get('processor')
+                        }
+
+            # Propagate to duplicates
+            propagated_count = 0
+            for result in multimodal_data_list:
+                if result.get('is_duplicate'):
+                    original_path = result.get('original_image_path')
+                    if original_path and original_path in unique_image_data:
+                        source_data = unique_image_data[original_path]
+                        result['description'] = source_data['description']
+                        result['entity_info'] = source_data['entity_info']
+                        result['processor'] = source_data['processor']
+                        propagated_count += 1
+                        self.logger.debug(
+                            f"Propagated description to duplicate at index {result['index']} "
+                            f"from original: {Path(original_path).name}"
+                        )
+
+            self.logger.info(
+                f"Successfully propagated descriptions to {propagated_count}/{len(image_dedup_map)} duplicate images"
+            )
 
         # Stage 2: Convert to LightRAG chunks format
         lightrag_chunks = self._convert_to_lightrag_chunks_type_aware(
@@ -1148,17 +1274,27 @@ class ProcessorMixin:
                 updated_chunks_list = existing_chunks_list + chunk_ids
                 updated_chunks_count = existing_chunks_count + len(chunk_ids)
 
-                # Update document status with integrated chunk list
-                await self.lightrag.doc_status.upsert(
-                    {
-                        doc_id: {
-                            **current_doc_status,  # Keep existing fields
-                            "chunks_list": updated_chunks_list,  # Integrated chunks list
-                            "chunks_count": updated_chunks_count,  # Updated total count
-                            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
-                        }
+                # Prepare doc_status update
+                doc_status_update = {
+                    **current_doc_status,  # Keep existing fields
+                    "chunks_list": updated_chunks_list,  # Integrated chunks list
+                    "chunks_count": updated_chunks_count,  # Updated total count
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                }
+
+                # Add deduplication metrics if available
+                if hasattr(self, '_dedup_metrics') and self._dedup_metrics:
+                    reduction_pct = (self._dedup_metrics['duplicates'] / self._dedup_metrics['total_images'] * 100) if self._dedup_metrics['total_images'] > 0 else 0
+                    doc_status_update["deduplication_metrics"] = {
+                        "total_images": self._dedup_metrics['total_images'],
+                        "unique_images": self._dedup_metrics['unique'],
+                        "duplicate_images": self._dedup_metrics['duplicates'],
+                        "reduction_percentage": round(reduction_pct, 2),
+                        "vlm_calls_saved": self._dedup_metrics['duplicates']
                     }
-                )
+
+                # Update document status with integrated chunk list
+                await self.lightrag.doc_status.upsert({doc_id: doc_status_update})
 
                 # Ensure doc_status update is persisted to disk
                 await self.lightrag.doc_status.index_done_callback()
@@ -1363,6 +1499,7 @@ class ProcessorMixin:
         split_by_character_only: bool = False,
         doc_id: str | None = None,
         display_stats: bool = None,
+        force_reprocess: bool = False,
     ):
         """
         Insert content list directly without document parsing
@@ -1383,6 +1520,7 @@ class ProcessorMixin:
             split_by_character_only: If True, split only by the specified character
             doc_id: Optional document ID, if not provided will be generated from content
             display_stats: Whether to display content statistics (defaults to config.display_content_stats)
+            force_reprocess: If True, forces reprocessing of documents even if they already exist in storage
 
         Note:
             - img_path must be an absolute path to the image file
@@ -1403,6 +1541,37 @@ class ProcessorMixin:
         # Generate doc_id based on content if not provided
         if doc_id is None:
             doc_id = self._generate_content_based_doc_id(content_list)
+
+        # Handle force_reprocess: clean existing doc_id from storage to allow reprocessing
+        if force_reprocess and doc_id:
+            self.logger.info(f"Force reprocess enabled for doc_id: {doc_id}")
+            try:
+                # Check if document exists in doc_status
+                await self.lightrag.doc_status.initialize()
+                existing_doc = await self.lightrag.doc_status.get_by_id(doc_id)
+                
+                if existing_doc:
+                    self.logger.info(f"Removing existing document from storage: {doc_id}")
+                    # Remove from doc_status to bypass filter_keys()
+                    await self.lightrag.doc_status.delete([doc_id])
+                    
+                    # Also remove from full_docs if it exists to ensure clean reprocessing
+                    try:
+                        await self.lightrag.full_docs.initialize()
+                        existing_full_doc = await self.lightrag.full_docs.get_by_id(doc_id)
+                        if existing_full_doc:
+                            self.logger.info(f"Removing existing document from full_docs: {doc_id}")
+                            await self.lightrag.full_docs.delete([doc_id])
+                    except Exception as e:
+                        self.logger.warning(f"Could not clean full_docs for {doc_id}: {e}")
+                        
+                    self.logger.info(f"Storage cleaned for reprocessing: {doc_id}")
+                else:
+                    self.logger.info(f"Document {doc_id} not found in storage, proceeding with normal processing")
+                    
+            except Exception as e:
+                self.logger.error(f"Error during force_reprocess cleanup for {doc_id}: {e}")
+                raise
 
         # Display content statistics if requested
         if display_stats:

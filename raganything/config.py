@@ -5,8 +5,16 @@ Contains configuration dataclasses with environment variable support
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from lightrag.utils import get_env_value
+
+# LiteLLM Integration
+try:
+    from raganything.litellm_adapter import LiteLLMConfig
+    LITELLM_AVAILABLE = True
+except ImportError:
+    LITELLM_AVAILABLE = False
+    LiteLLMConfig = None
 
 
 @dataclass
@@ -26,7 +34,7 @@ class RAGAnythingConfig:
     parser_output_dir: str = field(default=get_env_value("OUTPUT_DIR", "./output", str))
     """Default output directory for parsed content."""
 
-    parser: str = field(default=get_env_value("PARSER", "mineru", str))
+    parser: str = field(default=get_env_value("PARSER", "docling", str))
     """Parser selection: 'mineru' or 'docling'."""
 
     display_content_stats: bool = field(
@@ -102,6 +110,18 @@ class RAGAnythingConfig:
 
     content_format: str = field(default=get_env_value("CONTENT_FORMAT", "minerU", str))
     """Default content format for context extraction when processing documents."""
+
+    # LiteLLM Configuration
+    # ---
+    use_litellm: bool = field(default=False)
+    """Enable LiteLLM for automatic model function creation.
+    If True and no manual model functions provided, will auto-create from litellm_config.
+    """
+
+    litellm_config: Optional["LiteLLMConfig"] = field(default=None)
+    """Configuration for LiteLLM models (llm, embedding, vision).
+    Only used if use_litellm=True. Can be loaded from environment variables.
+    """
 
     def __post_init__(self):
         """Post-initialization setup for backward compatibility"""

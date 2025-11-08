@@ -225,3 +225,180 @@ def get_processor_supports(proc_type: str) -> List[str]:
         ],
     }
     return supports_map.get(proc_type, ["Basic processing"])
+
+
+class ImageDeduplicator:
+    """
+    Image deduplicator using perceptual hashing
+
+    Uses average hash algorithm to detect duplicate and near-duplicate images.
+    Particularly useful for identifying repeated logos, headers, and footers in documents.
+
+    Attributes:
+        hash_size: Size of the hash (default 8 = 64 bits)
+        similarity_threshold: Maximum Hamming distance to consider images as duplicates
+            - 0: Identical images only
+            - 1-5: Very similar (logos with slight variations)
+            - 6-10: Similar images
+            - >10: Different images
+        seen_hashes: Dictionary mapping hashes to original image paths
+    """
+
+    def __init__(self, hash_size: int = 8, similarity_threshold: int = 5):
+        """
+        Initialize image deduplicator
+
+        Args:
+            hash_size: Size of the perceptual hash (8 = 64 bits recommended)
+            similarity_threshold: Hamming distance threshold for duplicates (5 recommended)
+        """
+        self.hash_size = hash_size
+        self.similarity_threshold = similarity_threshold
+        self.seen_hashes = {}  # hash_str -> original_path
+
+        logger.info(
+            f"ImageDeduplicator initialized: hash_size={hash_size}, "
+            f"threshold={similarity_threshold}"
+        )
+
+    def get_image_hash(self, image_path: Path) -> str:
+        """
+        Generate perceptual hash for an image using average hash algorithm
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Hexadecimal string representation of the hash
+
+        Raises:
+            Exception: If image cannot be loaded or hashed
+        """
+        try:
+            from PIL import Image
+            import imagehash
+
+            img = Image.open(image_path)
+            hash_value = imagehash.average_hash(img, hash_size=self.hash_size)
+            return str(hash_value)
+
+        except Exception as e:
+            logger.error(f"Failed to hash image {image_path}: {e}")
+            raise
+
+    def calculate_hamming_distance(self, hash1: str, hash2: str) -> int:
+        """
+        Calculate Hamming distance between two hash strings
+
+        Args:
+            hash1: First hash string (hex)
+            hash2: Second hash string (hex)
+
+        Returns:
+            Hamming distance (number of differing bits)
+        """
+        try:
+            # Convert hex strings to integers and XOR them
+            xor_result = int(hash1, 16) ^ int(hash2, 16)
+            # Count number of 1s in binary representation
+            distance = bin(xor_result).count('1')
+            return distance
+        except Exception as e:
+            logger.error(f"Failed to calculate Hamming distance: {e}")
+            return 999  # Return large distance on error
+
+    def is_duplicate(self, image_path: Path) -> Tuple[bool, Path | None]:
+        """
+        Check if image is a duplicate of a previously seen image
+
+        Args:
+            image_path: Path to image to check
+
+        Returns:
+            Tuple of (is_duplicate, original_path)
+            - is_duplicate: True if image is duplicate
+            - original_path: Path to original image (None if not duplicate)
+        """
+        try:
+            # Generate hash for current image
+            current_hash = self.get_image_hash(image_path)
+
+            # Check against all seen hashes
+            for seen_hash, original_path_str in self.seen_hashes.items():
+                distance = self.calculate_hamming_distance(current_hash, seen_hash)
+
+                if distance <= self.similarity_threshold:
+                    original_path = Path(original_path_str)
+                    logger.debug(
+                        f"Duplicate found: {image_path.name} matches {original_path.name} "
+                        f"(distance={distance})"
+                    )
+                    return True, original_path
+
+            # Not a duplicate - register this hash
+            self.seen_hashes[current_hash] = str(image_path)
+            logger.debug(f"New unique image registered: {image_path.name}")
+            return False, None
+
+        except Exception as e:
+            logger.error(f"Error checking duplicate for {image_path}: {e}")
+            # On error, treat as unique to avoid losing data
+            return False, None
+
+    def deduplicate_images(
+        self,
+        image_paths: List[Path]
+    ) -> Dict[str, Any]:
+        """
+        Deduplicate a list of images
+
+        Args:
+            image_paths: List of image paths to deduplicate
+
+        Returns:
+            Dictionary with:
+                - 'unique': List of unique image paths
+                - 'duplicates': List of (duplicate_path, original_path) tuples
+                - 'stats': Statistics dictionary
+        """
+        unique_images = []
+        duplicates = []
+
+        logger.info(f"Starting deduplication of {len(image_paths)} images...")
+
+        for img_path in image_paths:
+            is_dup, original = self.is_duplicate(img_path)
+
+            if is_dup:
+                duplicates.append((img_path, original))
+            else:
+                unique_images.append(img_path)
+
+        # Calculate statistics
+        total = len(image_paths)
+        unique_count = len(unique_images)
+        duplicate_count = len(duplicates)
+        reduction_pct = (duplicate_count / total * 100) if total > 0 else 0
+
+        stats = {
+            'total': total,
+            'unique': unique_count,
+            'duplicates': duplicate_count,
+            'reduction_percentage': reduction_pct
+        }
+
+        logger.info(
+            f"Deduplication complete: {total} total, {unique_count} unique, "
+            f"{duplicate_count} duplicates ({reduction_pct:.1f}% reduction)"
+        )
+
+        return {
+            'unique': unique_images,
+            'duplicates': duplicates,
+            'stats': stats
+        }
+
+    def reset(self):
+        """Reset the deduplicator by clearing seen hashes"""
+        self.seen_hashes.clear()
+        logger.info("Deduplicator reset - all hashes cleared")

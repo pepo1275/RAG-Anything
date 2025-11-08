@@ -58,7 +58,7 @@ class BatchParser:
 
     def __init__(
         self,
-        parser_type: str = "mineru",
+        parser_type: str = "docling",
         max_workers: int = 4,
         show_progress: bool = True,
         timeout_per_file: int = 300,
@@ -362,7 +362,7 @@ def main():
     parser.add_argument(
         "--parser",
         choices=["mineru", "docling"],
-        default="mineru",
+        default="docling",
         help="Parser to use",
     )
     parser.add_argument(

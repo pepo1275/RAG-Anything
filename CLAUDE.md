@@ -22,6 +22,7 @@ Este archivo contiene las reglas críticas que DEBES seguir siempre al trabajar 
 - ✅ **Testing**: Ejecutar tests ANTES y DESPUÉS de cambios
 - ✅ **Backup**: De configuraciones y datos críticos
 - ✅ **Un solo task**: Solo UNA tarea en in_progress a la vez
+- ✅ **UTF-8 encoding**: SIEMPRE usar `export PYTHONIOENCODING=utf-8` antes de ejecutar scripts Python con emojis/caracteres especiales en Windows
 
 ### 3. CHECKPOINTS OBLIGATORIOS - DETENER Y ESPERAR APROBACIÓN
 - [ ] **FASE 0**: Setup inicial → **🛑 STOP**
@@ -52,6 +53,9 @@ git push origin $(git branch --show-current)
 ## 🛠️ COMANDOS DE VALIDACIÓN
 
 ```bash
+# ⚠️ IMPORTANTE: En Windows, SIEMPRE usar UTF-8 encoding para evitar errores con emojis/caracteres especiales
+export PYTHONIOENCODING=utf-8
+
 # Verificar cumplimiento de metodología
 python project_status.py
 
@@ -59,12 +63,56 @@ python project_status.py
 python test_environment/01_pretest_requirements.py
 
 # Verificar tests
-python test_environment/03_post_validation_tests.py
+export PYTHONIOENCODING=utf-8 && python test_environment/03_post_validation_tests.py
 
 # Verificar calidad de código
 ruff check .
 mypy raganything/
 ```
+
+---
+
+## 📊 METODOLOGÍA: RPVEA-A LIGHTWEIGHT
+
+Este proyecto sigue la metodología **RPVEA-A Lightweight** - un enfoque de desarrollo estructurado, testing-first, y orientado a calidad.
+
+### **Fases RPVEA:**
+- **R**EVIEW: Analizar requisitos y estado actual
+- **P**REPARE: Generar estrategia de testing (PRE/POST/Integration tests)
+- **V**ALIDATE: Ejecutar PRE-tests, obtener aprobación del usuario
+- **E**XECUTE: Implementar con confianza (baseline establecido)
+- **A**SSESS: Ejecutar POST-tests, analizar resultados
+
+### **Principios Clave:**
+1. **PRE-tests DEBEN pasar** antes de cualquier cambio de código (establecer baseline)
+2. **POST-tests definen el éxito** (criterios de aceptación claros)
+3. **VALIDATE nunca se delega** (aprobación del usuario a través del orquestador)
+4. **Usar Task tool** para delegar a agentes especializados cuando sea necesario
+
+### **Clasificación por Tiers:**
+
+**Tier 1: Cambios Rápidos (< 30 min)**
+- Ejemplos: Typos, ajustes de config, updates de docs
+- Proceso: RPVEA rápido (Claude solo)
+- Testing: Mental check, sin tests formales
+- Agentes: ❌ Ninguno (overhead > beneficio)
+
+**Tier 2: Cambios Estándar (30 min - 4 horas)**
+- Ejemplos: Nuevas funciones, actualizaciones de componentes, ejecución de benchmarks
+- Proceso: RPVEA Lite + tests
+- Testing: PRE/POST tests OBLIGATORIOS
+- Agentes: ✅ Task tool para análisis cuando sea necesario
+- TodoWrite: OBLIGATORIO
+
+**Tier 3: Cambios Mayores (> 4 horas o arquitectónicos)**
+- Ejemplos: Nueva integración de modelos, refactoring arquitectónico, nuevos módulos
+- Proceso: RPVEA completo
+- Testing: PRE/POST/Integration tests OBLIGATORIOS
+- Agentes: ✅ Task tool para análisis comprehensivo
+- TodoWrite: OBLIGATORIO
+- Documentación: OBLIGATORIA
+
+**Documentación completa:** Ver `docs/workflows/rpvea-methodology-evaluation.md`
 
 ---
 
