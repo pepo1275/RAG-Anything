@@ -3,8 +3,23 @@
 This module provides adapters to use LiteLLM (https://github.com/BerriAI/litellm)
 with RAG-Anything, enabling support for 100+ LLM providers with a unified interface.
 
+IMPORTANT - API Keys:
+    LiteLLM automatically reads API keys from environment variables based on the provider:
+    - OpenAI: OPENAI_API_KEY
+    - Anthropic: ANTHROPIC_API_KEY
+    - Google: GOOGLE_API_KEY (or GEMINI_API_KEY)
+    - Azure: AZURE_API_KEY
+    - Ollama: No API key needed (local)
+
+    Make sure to set the appropriate API key in your environment or .env file BEFORE
+    using LiteLLM with that provider. Otherwise you'll get authentication errors.
+
 Example:
     >>> from raganything.litellm_adapter import LiteLLMConfig, LiteLLMAdapter
+    >>> # Set API key in environment first
+    >>> import os
+    >>> os.environ["ANTHROPIC_API_KEY"] = "your-key"
+    >>>
     >>> config = LiteLLMConfig(llm_model="anthropic/claude-3-5-sonnet-20241022")
     >>> adapter = LiteLLMAdapter(config)
     >>> rag = RAGAnything(
@@ -15,8 +30,68 @@ Example:
 """
 
 from dataclasses import dataclass
-from typing import Callable, Optional, List
+from typing import Callable, Optional, List, Dict
 import os
+import warnings
+
+
+# Mapping of provider prefixes to required environment variable names
+PROVIDER_API_KEYS: Dict[str, List[str]] = {
+    "openai": ["OPENAI_API_KEY"],
+    "anthropic": ["ANTHROPIC_API_KEY"],
+    "gemini": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+    "google": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+    "azure": ["AZURE_API_KEY", "AZURE_OPENAI_API_KEY"],
+    "ollama": [],  # Local, no key needed
+    "huggingface": ["HUGGINGFACE_API_KEY", "HF_TOKEN"],
+    "groq": ["GROQ_API_KEY"],
+    "together": ["TOGETHERAI_API_KEY"],
+}
+
+
+def check_provider_api_key(model: str, warn: bool = True) -> Optional[str]:
+    """Check if the required API key for a provider is set in environment.
+
+    Args:
+        model: Model name in format "provider/model-name" (e.g., "openai/gpt-4o")
+        warn: If True, emit warning when API key is missing
+
+    Returns:
+        The environment variable name that is set, or None if no key is needed/found
+    """
+    if "/" not in model:
+        return None
+
+    provider = model.split("/")[0].lower()
+
+    # Check if provider requires API key
+    if provider not in PROVIDER_API_KEYS:
+        # Unknown provider, can't check
+        return None
+
+    required_keys = PROVIDER_API_KEYS[provider]
+
+    # No key needed (e.g., ollama)
+    if not required_keys:
+        return None
+
+    # Check if any of the required keys is set
+    for key in required_keys:
+        if os.getenv(key):
+            return key
+
+    # No key found
+    if warn:
+        key_list = " or ".join(required_keys)
+        warnings.warn(
+            f"Provider '{provider}' requires API key but none found in environment.\n"
+            f"Please set {key_list} in your environment or .env file.\n"
+            f"Example: export {required_keys[0]}='your-api-key-here'",
+            UserWarning,
+            stacklevel=2
+        )
+
+    return None
 
 
 @dataclass
@@ -101,8 +176,17 @@ class LiteLLMAdapter:
 
         Args:
             config: LiteLLMConfig instance with model settings
+
+        Warnings:
+            Emits UserWarning if required API keys are not found in environment
         """
         self.config = config
+
+        # Check API keys for all configured models
+        check_provider_api_key(config.llm_model, warn=True)
+        check_provider_api_key(config.embedding_model, warn=True)
+        if config.vision_model:
+            check_provider_api_key(config.vision_model, warn=True)
 
     def create_llm_func(self) -> Callable:
         """Create LLM function compatible with RAG-Anything
