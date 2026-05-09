@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import logging
 import logging.config
+from functools import partial
 from pathlib import Path
 
 # Add project root directory to Python path
@@ -111,8 +112,8 @@ def create_sample_content_list():
         {
             "type": "image",
             "img_path": "/absolute/path/to/system_architecture.jpg",  # IMPORTANT: Use absolute path to image file
-            "img_caption": ["Figure 1: RAGAnything System Architecture"],
-            "img_footnote": [
+            "image_caption": ["Figure 1: RAGAnything System Architecture"],
+            "image_footnote": [
                 "The architecture shows the complete pipeline from document parsing to multimodal query processing"
             ],
             "page_idx": 1,  # Page number where this image appears
@@ -211,9 +212,26 @@ async def demo_insert_content_list(
 
         # Define vision model function for image processing
         def vision_model_func(
-            prompt, system_prompt=None, history_messages=[], image_data=None, **kwargs
+            prompt,
+            system_prompt=None,
+            history_messages=[],
+            image_data=None,
+            messages=None,
+            **kwargs,
         ):
-            if image_data:
+            # If pre-built messages are provided (VLM enhanced query path), use them directly
+            if messages:
+                return openai_complete_if_cache(
+                    "gpt-4o",
+                    "",
+                    system_prompt=None,
+                    history_messages=[],
+                    messages=messages,
+                    api_key=api_key,
+                    base_url=base_url,
+                    **kwargs,
+                )
+            elif image_data:
                 return openai_complete_if_cache(
                     "gpt-4o",
                     "",
@@ -245,13 +263,16 @@ async def demo_insert_content_list(
             else:
                 return llm_model_func(prompt, system_prompt, history_messages, **kwargs)
 
-        # Define embedding function
+        # Define embedding function - using environment variables for configuration
+        embedding_dim = int(os.getenv("EMBEDDING_DIM", "3072"))
+        embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+
         embedding_func = EmbeddingFunc(
-            embedding_dim=3072,
+            embedding_dim=embedding_dim,
             max_token_size=8192,
-            func=lambda texts: openai_embed(
-                texts,
-                model="text-embedding-3-large",
+            func=partial(
+                openai_embed.func,
+                model=embedding_model,
                 api_key=api_key,
                 base_url=base_url,
             ),

@@ -11,19 +11,21 @@ import os
 from typing import Dict, Any, Optional, Callable
 import sys
 import asyncio
+import atexit
 from dataclasses import dataclass, field
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add project root directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lightrag import LightRAG
-from lightrag.utils import logger
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
+# Load environment variables from .env file BEFORE importing LightRAG
+# This is critical for TIKTOKEN_CACHE_DIR to work properly in offline environments
 # The OS environment variables take precedence over the .env file
 load_dotenv(dotenv_path=".env", override=False)
+
+from lightrag import LightRAG
+from lightrag.utils import logger
 
 # Import configuration and modules
 from raganything.config import RAGAnythingConfig
@@ -31,7 +33,8 @@ from raganything.query import QueryMixin
 from raganything.processor import ProcessorMixin
 from raganything.batch import BatchMixin
 from raganything.utils import get_processor_supports
-from raganything.parser import MineruParser, DoclingParser
+from raganything.parser import MineruParser, SUPPORTED_PARSERS, get_parser
+from raganything.callbacks import CallbackManager
 
 # Import specialized processors
 from raganything.modalprocessors import (
@@ -91,6 +94,17 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
     parse_cache: Optional[Any] = field(default=None, init=False)
     """Parse result cache storage using LightRAG KV storage."""
 
+    multimodal_status_cache: Optional[Any] = field(default=None, init=False)
+    """Compatibility KV storage for multimodal completion state."""
+
+    callback_manager: CallbackManager = field(
+        default_factory=CallbackManager, init=False, repr=False
+    )
+    """Processing callbacks manager (optional hooks for observability and metrics)."""
+
+    _parser_installation_checked: bool = field(default=False, init=False)
+    """Flag to track if parser installation has been checked."""
+
     def __post_init__(self):
         """Post-initialization setup following LightRAG pattern"""
         # Initialize configuration if not provided
@@ -104,9 +118,10 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
         self.logger = logger
 
         # Set up document parser
-        self.doc_parser = (
-            DoclingParser() if self.config.parser == "docling" else MineruParser()
-        )
+        self.doc_parser = get_parser(self.config.parser)
+
+        # Register close method for cleanup
+        atexit.register(self.close)
 
         # Create working directory if needed
         if not os.path.exists(self.working_dir):
@@ -125,20 +140,43 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
         )
         self.logger.info(f"  Max concurrent files: {self.config.max_concurrent_files}")
 
-    def __del__(self):
-        """Cleanup resources when object is destroyed"""
+    def close(self):
+        """Cleanup resources when object is destroyed.
+
+        Handles three common scenarios:
+        1. Inside a running async context (e.g., FastAPI shutdown) -> schedule task
+        2. No event loop in thread (typical atexit) -> create one with asyncio.run()
+        3. Event loop exists but is closed/closing (atexit race) -> create new loop
+        """
         try:
             import asyncio
 
-            if asyncio.get_event_loop().is_running():
-                # If we're in an async context, schedule cleanup
-                asyncio.create_task(self.finalize_storages())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None and loop.is_running():
+                # Case 1: We're inside a running event loop, schedule cleanup task
+                loop.create_task(self.finalize_storages())
             else:
-                # Run cleanup synchronously
+                # Case 2/3: No running loop. Clean up any stale loop reference
+                # so asyncio.run() can create a fresh one (Python 3.10+ raises
+                # RuntimeError if a loop is already set for the thread).
+                if loop is not None:
+                    try:
+                        loop.close()
+                    except Exception:
+                        pass
+                    asyncio.set_event_loop(None)
                 asyncio.run(self.finalize_storages())
-        except Exception as e:
-            # Use print instead of logger since logger might be cleaned up already
-            print(f"Warning: Failed to finalize RAGAnything storages: {e}")
+        except Exception:
+            # Silently ignore during interpreter shutdown - the event loop and
+            # resources are being torn down anyway, and printing may fail if
+            # stdout/stderr are already closed. This avoids the noisy
+            # "There is no current event loop in thread 'MainThread'" warning
+            # that confused users (#135).
+            pass
 
     def _create_context_config(self) -> ContextConfig:
         """Create context configuration from RAGAnything config"""
@@ -219,36 +257,132 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
 
     async def _ensure_lightrag_initialized(self):
         """Ensure LightRAG instance is initialized, create if necessary"""
+        try:
+            # Check parser installation first
+            if not self._parser_installation_checked:
+                if not self.doc_parser.check_installation():
+                    error_msg = (
+                        f"Parser '{self.config.parser}' is not properly installed. "
+                        "Please install it using 'pip install' or 'uv pip install'."
+                    )
+                    self.logger.error(error_msg)
+                    return {"success": False, "error": error_msg}
 
-        # Check parser installation first
-        if not self.doc_parser.check_installation():
-            raise RuntimeError(
-                f"Parser '{self.config.parser}' is not properly installed. "
-                "Please install it using pip install or uv pip install."
-            )
+                self._parser_installation_checked = True
+                self.logger.info(f"Parser '{self.config.parser}' installation verified")
 
-        if self.lightrag is not None:
-            # LightRAG was pre-provided, but we need to ensure it's properly initialized
-            # and that parse_cache is set up
+            if self.lightrag is not None:
+                # LightRAG was pre-provided, but we need to ensure it's properly initialized
+                # Inherit model functions from LightRAG if not explicitly provided
+                if self.llm_model_func is None and hasattr(
+                    self.lightrag, "llm_model_func"
+                ):
+                    self.llm_model_func = self.lightrag.llm_model_func
+                    self.logger.debug("Inherited llm_model_func from LightRAG instance")
 
-            # Ensure LightRAG storages are initialized
-            if (
-                not hasattr(self.lightrag, "_storages_status")
-                or self.lightrag._storages_status.name != "INITIALIZED"
-            ):
-                self.logger.info(
-                    "Initializing storages for pre-provided LightRAG instance"
-                )
+                if self.embedding_func is None and hasattr(
+                    self.lightrag, "embedding_func"
+                ):
+                    self.embedding_func = self.lightrag.embedding_func
+                    self.logger.debug("Inherited embedding_func from LightRAG instance")
+
+                try:
+                    # Ensure LightRAG storages are initialized
+                    if (
+                        not hasattr(self.lightrag, "_storages_status")
+                        or self.lightrag._storages_status.name != "INITIALIZED"
+                    ):
+                        self.logger.info(
+                            "Initializing storages for pre-provided LightRAG instance"
+                        )
+                        await self.lightrag.initialize_storages()
+                        from lightrag.kg.shared_storage import (
+                            initialize_pipeline_status,
+                        )
+
+                        await initialize_pipeline_status()
+
+                    # Initialize parse cache if not already done
+                    if self.parse_cache is None:
+                        self.logger.info(
+                            "Initializing parse cache for pre-provided LightRAG instance"
+                        )
+                        self.parse_cache = (
+                            self.lightrag.key_string_value_json_storage_cls(
+                                namespace="parse_cache",
+                                workspace=self.lightrag.workspace,
+                                global_config=self.lightrag.__dict__,
+                                embedding_func=self.embedding_func,
+                            )
+                        )
+                        await self.parse_cache.initialize()
+
+                    if self.multimodal_status_cache is None:
+                        self.logger.info(
+                            "Initializing multimodal status cache for pre-provided LightRAG instance"
+                        )
+                        self.multimodal_status_cache = (
+                            self.lightrag.key_string_value_json_storage_cls(
+                                namespace="multimodal_status",
+                                workspace=self.lightrag.workspace,
+                                global_config=self.lightrag.__dict__,
+                                embedding_func=self.embedding_func,
+                            )
+                        )
+                        await self.multimodal_status_cache.initialize()
+
+                    # Initialize processors if not already done
+                    if not self.modal_processors:
+                        self._initialize_processors()
+
+                    return {"success": True}
+
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to initialize pre-provided LightRAG instance: {str(e)}"
+                    )
+                    self.logger.error(error_msg, exc_info=True)
+                    return {"success": False, "error": error_msg}
+
+            # Validate required functions for creating new LightRAG instance
+            if self.llm_model_func is None:
+                error_msg = "llm_model_func must be provided when LightRAG is not pre-initialized"
+                self.logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+
+            if self.embedding_func is None:
+                error_msg = "embedding_func must be provided when LightRAG is not pre-initialized"
+                self.logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+
+            from lightrag.kg.shared_storage import initialize_pipeline_status
+
+            # Prepare LightRAG initialization parameters
+            lightrag_params = {
+                "working_dir": self.working_dir,
+                "llm_model_func": self.llm_model_func,
+                "embedding_func": self.embedding_func,
+            }
+
+            # Merge user-provided lightrag_kwargs, which can override defaults
+            lightrag_params.update(self.lightrag_kwargs)
+
+            # Log the parameters being used for initialization (excluding sensitive data)
+            log_params = {
+                k: v
+                for k, v in lightrag_params.items()
+                if not callable(v)
+                and k not in ["llm_model_kwargs", "vector_db_storage_cls_kwargs"]
+            }
+            self.logger.info(f"Initializing LightRAG with parameters: {log_params}")
+
+            try:
+                # Create LightRAG instance with merged parameters
+                self.lightrag = LightRAG(**lightrag_params)
                 await self.lightrag.initialize_storages()
-                from lightrag.kg.shared_storage import initialize_pipeline_status
-
                 await initialize_pipeline_status()
 
-            # Initialize parse cache if not already done
-            if self.parse_cache is None:
-                self.logger.info(
-                    "Initializing parse cache for pre-provided LightRAG instance"
-                )
+                # Initialize parse cache storage using LightRAG's KV storage
                 self.parse_cache = self.lightrag.key_string_value_json_storage_cls(
                     namespace="parse_cache",
                     workspace=self.lightrag.workspace,
@@ -257,62 +391,33 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
                 )
                 await self.parse_cache.initialize()
 
-            # Initialize processors if not already done
-            if not self.modal_processors:
+                self.multimodal_status_cache = (
+                    self.lightrag.key_string_value_json_storage_cls(
+                        namespace="multimodal_status",
+                        workspace=self.lightrag.workspace,
+                        global_config=self.lightrag.__dict__,
+                        embedding_func=self.embedding_func,
+                    )
+                )
+                await self.multimodal_status_cache.initialize()
+
+                # Initialize processors after LightRAG is ready
                 self._initialize_processors()
 
-            return
+                self.logger.info(
+                    "LightRAG, parse cache, multimodal status cache, and multimodal processors initialized"
+                )
+                return {"success": True}
 
-        # Validate required functions for creating new LightRAG instance
-        if self.llm_model_func is None:
-            raise ValueError(
-                "llm_model_func must be provided when LightRAG is not pre-initialized"
-            )
-        if self.embedding_func is None:
-            raise ValueError(
-                "embedding_func must be provided when LightRAG is not pre-initialized"
-            )
+            except Exception as e:
+                error_msg = f"Failed to initialize LightRAG instance: {str(e)}"
+                self.logger.error(error_msg, exc_info=True)
+                return {"success": False, "error": error_msg}
 
-        from lightrag.kg.shared_storage import initialize_pipeline_status
-
-        # Prepare LightRAG initialization parameters
-        lightrag_params = {
-            "working_dir": self.working_dir,
-            "llm_model_func": self.llm_model_func,
-            "embedding_func": self.embedding_func,
-        }
-
-        # Merge user-provided lightrag_kwargs, which can override defaults
-        lightrag_params.update(self.lightrag_kwargs)
-
-        # Log the parameters being used for initialization (excluding sensitive data)
-        log_params = {
-            k: v
-            for k, v in lightrag_params.items()
-            if not callable(v)
-            and k not in ["llm_model_kwargs", "vector_db_storage_cls_kwargs"]
-        }
-        self.logger.info(f"Initializing LightRAG with parameters: {log_params}")
-
-        # Create LightRAG instance with merged parameters
-        self.lightrag = LightRAG(**lightrag_params)
-
-        await self.lightrag.initialize_storages()
-        await initialize_pipeline_status()
-
-        # Initialize parse cache storage using LightRAG's KV storage
-        self.parse_cache = self.lightrag.key_string_value_json_storage_cls(
-            namespace="parse_cache",
-            workspace=self.lightrag.workspace,
-            global_config=self.lightrag.__dict__,
-            embedding_func=self.embedding_func,
-        )
-        await self.parse_cache.initialize()
-
-        # Initialize processors after LightRAG is ready
-        self._initialize_processors()
-
-        self.logger.info("LightRAG, parse cache, and multimodal processors initialized")
+        except Exception as e:
+            error_msg = f"Unexpected error during LightRAG initialization: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            return {"success": False, "error": error_msg}
 
     async def finalize_storages(self):
         """Finalize all storages including parse cache and LightRAG storages
@@ -344,6 +449,10 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
                 tasks.append(self.parse_cache.finalize())
                 self.logger.debug("Scheduled parse cache finalization")
 
+            if self.multimodal_status_cache is not None:
+                tasks.append(self.multimodal_status_cache.finalize())
+                self.logger.debug("Scheduled multimodal status cache finalization")
+
             # Finalize LightRAG storages if LightRAG is initialized
             if self.lightrag is not None:
                 tasks.append(self.lightrag.finalize_storages())
@@ -368,6 +477,17 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
             bool: True if the configured parser is properly installed
         """
         return self.doc_parser.check_installation()
+
+    def verify_parser_installation_once(self) -> bool:
+        if not self._parser_installation_checked:
+            if not self.doc_parser.check_installation():
+                raise RuntimeError(
+                    f"Parser '{self.config.parser}' is not properly installed. "
+                    "Please install it using pip install or uv pip install."
+                )
+            self._parser_installation_checked = True
+            self.logger.info(f"Parser '{self.config.parser}' installation verified")
+        return True
 
     def get_config_info(self) -> Dict[str, Any]:
         """Get current configuration information"""
@@ -489,6 +609,10 @@ class RAGAnything(QueryMixin, ProcessorMixin, BatchMixin):
         """Get processor information"""
         base_info = {
             "mineru_installed": MineruParser.check_installation(MineruParser()),
+            "parser_installation": {
+                parser_name: get_parser(parser_name).check_installation()
+                for parser_name in SUPPORTED_PARSERS
+            },
             "config": self.get_config_info(),
             "models": {
                 "llm_model": "External function"

@@ -7,6 +7,7 @@ Contains all query-related methods for both text and multimodal queries
 import json
 import hashlib
 import re
+import time
 from typing import Dict, List, Any
 from pathlib import Path
 from lightrag import QueryParam
@@ -85,6 +86,7 @@ class QueryMixin:
                 "top_k",
                 "max_tokens",
                 "temperature",
+                "system_prompt",
                 # "only_need_context",
                 # "only_need_prompt",
             ]
@@ -97,13 +99,16 @@ class QueryMixin:
 
         return f"multimodal_query:{cache_hash}"
 
-    async def aquery(self, query: str, mode: str = "mix", **kwargs) -> str:
+    async def aquery(
+        self, query: str, mode: str = "mix", system_prompt: str | None = None, **kwargs
+    ) -> str:
         """
         Pure text query - directly calls LightRAG's query functionality
 
         Args:
             query: Query text
             mode: Query mode ("local", "global", "hybrid", "naive", "mix", "bypass")
+            system_prompt: Optional system prompt to include.
             **kwargs: Other query parameters, will be passed to QueryParam
                 - vlm_enhanced: bool, default True when vision_model_func is available.
                   If True, will parse image paths in retrieved context and replace them
@@ -133,12 +138,24 @@ class QueryMixin:
             and hasattr(self, "vision_model_func")
             and self.vision_model_func
         ):
-            return await self.aquery_vlm_enhanced(query, mode=mode, **kwargs)
+            return await self.aquery_vlm_enhanced(
+                query, mode=mode, system_prompt=system_prompt, **kwargs
+            )
         elif vlm_enhanced and (
             not hasattr(self, "vision_model_func") or not self.vision_model_func
         ):
             self.logger.warning(
                 "VLM enhanced query requested but vision_model_func is not available, falling back to normal query"
+            )
+
+        callback_manager = getattr(self, "callback_manager", None)
+        query_start_time = time.time()
+
+        if callback_manager is not None:
+            callback_manager.dispatch(
+                "on_query_start",
+                query=query,
+                mode=mode,
             )
 
         # Create query parameters
@@ -147,10 +164,32 @@ class QueryMixin:
         self.logger.info(f"Executing text query: {query[:100]}...")
         self.logger.info(f"Query mode: {mode}")
 
-        # Call LightRAG's query method
-        result = await self.lightrag.aquery(query, param=query_param)
+        try:
+            # Call LightRAG's query method
+            result = await self.lightrag.aquery(
+                query, param=query_param, system_prompt=system_prompt
+            )
+        except Exception as exc:
+            if callback_manager is not None:
+                callback_manager.dispatch(
+                    "on_query_error",
+                    query=query,
+                    mode=mode,
+                    error=exc,
+                )
+            raise
 
         self.logger.info("Text query completed")
+        if callback_manager is not None:
+            duration = time.time() - query_start_time
+            result_len = len(result) if isinstance(result, str) else 0
+            callback_manager.dispatch(
+                "on_query_complete",
+                query=query,
+                mode=mode,
+                duration_seconds=duration,
+                result_length=result_len,
+            )
         return result
 
     async def aquery_with_multimodal(
@@ -158,6 +197,7 @@ class QueryMixin:
         query: str,
         multimodal_content: List[Dict[str, Any]] = None,
         mode: str = "mix",
+        system_prompt: str | None = None,
         **kwargs,
     ) -> str:
         """
@@ -169,6 +209,7 @@ class QueryMixin:
                 - type: Content type ("image", "table", "equation", etc.)
                 - Other fields depend on type (e.g., img_path, table_data, latex, etc.)
             mode: Query mode ("local", "global", "hybrid", "naive", "mix", "bypass")
+            system_prompt: Optional system prompt to include in the query
             **kwargs: Other query parameters, will be passed to QueryParam
 
         Returns:
@@ -197,7 +238,11 @@ class QueryMixin:
             )
         """
         # Ensure LightRAG is initialized
-        await self._ensure_lightrag_initialized()
+        init_result = await self._ensure_lightrag_initialized()
+        if not init_result or not init_result.get("success"):
+            raise RuntimeError(
+                f"LightRAG initialization failed: {(init_result or {}).get('error', 'unknown error')}"
+            )
 
         self.logger.info(f"Executing multimodal query: {query[:100]}...")
         self.logger.info(f"Query mode: {mode}")
@@ -205,11 +250,17 @@ class QueryMixin:
         # If no multimodal content, fallback to pure text query
         if not multimodal_content:
             self.logger.info("No multimodal content provided, executing text query")
-            return await self.aquery(query, mode=mode, **kwargs)
+            return await self.aquery(
+                query, mode=mode, system_prompt=system_prompt, **kwargs
+            )
 
         # Generate cache key for multimodal query
         cache_key = self._generate_multimodal_cache_key(
-            query, multimodal_content, mode, **kwargs
+            query,
+            multimodal_content,
+            mode,
+            system_prompt=system_prompt,
+            **kwargs,
         )
 
         # Check cache if available and enabled
@@ -247,7 +298,9 @@ class QueryMixin:
         )
 
         # Execute enhanced query
-        result = await self.aquery(enhanced_query, mode=mode, **kwargs)
+        result = await self.aquery(
+            enhanced_query, mode=mode, system_prompt=system_prompt, **kwargs
+        )
 
         # Save to cache if available and enabled
         if (
@@ -293,13 +346,22 @@ class QueryMixin:
         self.logger.info("Multimodal query completed")
         return result
 
-    async def aquery_vlm_enhanced(self, query: str, mode: str = "mix", **kwargs) -> str:
+    async def aquery_vlm_enhanced(
+        self,
+        query: str,
+        mode: str = "mix",
+        system_prompt: str | None = None,
+        extra_safe_dirs: List[str] = None,
+        **kwargs,
+    ) -> str:
         """
         VLM enhanced query - replaces image paths in retrieved context with base64 encoded images for VLM processing
 
         Args:
             query: User query
             mode: Underlying LightRAG query mode
+            system_prompt: Optional system prompt to include
+            extra_safe_dirs: Optional list of additional safe directories to allow images from
             **kwargs: Other query parameters
 
         Returns:
@@ -313,7 +375,11 @@ class QueryMixin:
             )
 
         # Ensure LightRAG is initialized
-        await self._ensure_lightrag_initialized()
+        init_result = await self._ensure_lightrag_initialized()
+        if not init_result or not init_result.get("success"):
+            raise RuntimeError(
+                f"LightRAG initialization failed: {(init_result or {}).get('error', 'unknown error')}"
+            )
 
         self.logger.info(f"Executing VLM enhanced query: {query[:100]}...")
 
@@ -329,19 +395,23 @@ class QueryMixin:
 
         # 2. Extract and process image paths
         enhanced_prompt, images_found = await self._process_image_paths_for_vlm(
-            raw_prompt
+            raw_prompt, extra_safe_dirs=extra_safe_dirs
         )
 
         if not images_found:
             self.logger.info("No valid images found, falling back to normal query")
             # Fallback to normal query
             query_param = QueryParam(mode=mode, **kwargs)
-            return await self.lightrag.aquery(query, param=query_param)
+            return await self.lightrag.aquery(
+                query, param=query_param, system_prompt=system_prompt
+            )
 
         self.logger.info(f"Processed {images_found} images for VLM")
 
         # 3. Build VLM message format
-        messages = self._build_vlm_messages_with_images(enhanced_prompt, query)
+        messages = self._build_vlm_messages_with_images(
+            enhanced_prompt, query, system_prompt
+        )
 
         # 4. Call VLM for question answering
         result = await self._call_vlm_with_multimodal_content(messages)
@@ -369,7 +439,7 @@ class QueryMixin:
         for i, content in enumerate(multimodal_content):
             content_type = content.get("type", "unknown")
             self.logger.info(
-                f"Processing {i+1}/{len(multimodal_content)} multimodal content: {content_type}"
+                f"Processing {i + 1}/{len(multimodal_content)} multimodal content: {content_type}"
             )
 
             try:
@@ -437,8 +507,8 @@ class QueryMixin:
     ) -> str:
         """Generate image description for query"""
         image_path = content.get("img_path")
-        captions = content.get("img_caption", [])
-        footnotes = content.get("img_footnote", [])
+        captions = content.get("image_caption", content.get("img_caption", []))
+        footnotes = content.get("image_footnote", content.get("img_footnote", []))
 
         if image_path and Path(image_path).exists():
             # If image exists, use vision model to generate description
@@ -516,12 +586,15 @@ class QueryMixin:
 
         return description
 
-    async def _process_image_paths_for_vlm(self, prompt: str) -> tuple[str, int]:
+    async def _process_image_paths_for_vlm(
+        self, prompt: str, extra_safe_dirs: List[str] = None
+    ) -> tuple[str, int]:
         """
         Process image paths in prompt, keeping original paths and adding VLM markers
 
         Args:
             prompt: Original prompt
+            extra_safe_dirs: Optional list of additional safe directories
 
         Returns:
             tuple: (processed prompt, image count)
@@ -554,12 +627,52 @@ class QueryMixin:
                 return match.group(0)  # Keep original
 
             # Use utility function to validate image file
-            self.logger.debug(f"Calling validate_image_file for: {image_path}")
             is_valid = validate_image_file(image_path)
-            self.logger.debug(f"Validation result for {image_path}: {is_valid}")
+
+            # Security check: only allow images from the workspace or output directories
+            # to prevent indirect prompt injection from reading arbitrary system files.
+            if is_valid:
+                abs_image_path = Path(image_path).resolve()
+                # Check if it's in the current working directory or subdirectories
+                try:
+                    is_in_cwd = abs_image_path.is_relative_to(Path.cwd())
+                except ValueError:
+                    is_in_cwd = False
+
+                # If a config is available, check against working_dir and parser_output_dir
+                is_in_safe_dir = is_in_cwd
+                if hasattr(self, "config") and self.config:
+                    try:
+                        is_in_working = abs_image_path.is_relative_to(
+                            Path(self.config.working_dir).resolve()
+                        )
+                        is_in_output = abs_image_path.is_relative_to(
+                            Path(self.config.parser_output_dir).resolve()
+                        )
+                        is_in_safe_dir = is_in_safe_dir or is_in_working or is_in_output
+                    except Exception:
+                        pass
+
+                # Check against extra safe directories if provided
+                if not is_in_safe_dir and extra_safe_dirs:
+                    for safe_dir in extra_safe_dirs:
+                        try:
+                            if abs_image_path.is_relative_to(Path(safe_dir).resolve()):
+                                is_in_safe_dir = True
+                                break
+                        except Exception:
+                            continue
+
+                if not is_in_safe_dir:
+                    self.logger.warning(
+                        f"Blocking image path outside safe directories: {image_path}"
+                    )
+                    is_valid = False
 
             if not is_valid:
-                self.logger.warning(f"Image validation failed for: {image_path}")
+                self.logger.warning(
+                    f"Image validation failed or path unsafe for: {image_path}"
+                )
                 return match.group(0)  # Keep original if validation fails
 
             try:
@@ -593,7 +706,7 @@ class QueryMixin:
         return enhanced_prompt, images_processed
 
     def _build_vlm_messages_with_images(
-        self, enhanced_prompt: str, user_query: str
+        self, enhanced_prompt: str, user_query: str, system_prompt: str
     ) -> List[Dict]:
         """
         Build VLM message format, using markers to correspond images with text positions
@@ -658,13 +771,22 @@ class QueryMixin:
                 "text": f"\n\nUser Question: {user_query}\n\nPlease answer based on the context and images provided.",
             }
         )
+        base_system_prompt = "You are a helpful assistant that can analyze both text and image content to provide comprehensive answers."
+
+        if system_prompt:
+            full_system_prompt = base_system_prompt + " " + system_prompt
+        else:
+            full_system_prompt = base_system_prompt
 
         return [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that can analyze both text and image content to provide comprehensive answers.",
+                "content": full_system_prompt,
             },
-            {"role": "user", "content": content_parts},
+            {
+                "role": "user",
+                "content": content_parts,
+            },
         ]
 
     async def _call_vlm_with_multimodal_content(self, messages: List[Dict]) -> str:

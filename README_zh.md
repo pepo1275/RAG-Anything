@@ -14,7 +14,7 @@
   <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 25px; text-align: center;">
     <p>
       <a href='https://github.com/HKUDS/RAG-Anything'><img src='https://img.shields.io/badge/🔥项目-主页-00d9ff?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a2e'></a>
-      <a href='https://arxiv.org/abs/2410.05779'><img src='https://img.shields.io/badge/📄arXiv-2410.05779-ff6b6b?style=for-the-badge&logo=arxiv&logoColor=white&labelColor=1a1a2e'></a>
+      <a href='https://arxiv.org/abs/2510.12323'><img src='https://img.shields.io/badge/📄arXiv-2510.12323-ff6b6b?style=for-the-badge&logo=arxiv&logoColor=white&labelColor=1a1a2e'></a>
       <a href='https://github.com/HKUDS/LightRAG'><img src='https://img.shields.io/badge/⚡基于-LightRAG-4ecdc4?style=for-the-badge&logo=lightning&logoColor=white&labelColor=1a1a2e'></a>
     </p>
     <p>
@@ -43,6 +43,27 @@
   <a href="#-快速开始" style="text-decoration: none;">
     <img src="https://img.shields.io/badge/快速开始-立即开始使用-00d9ff?style=for-the-badge&logo=rocket&logoColor=white&labelColor=1a1a2e">
   </a>
+</div>
+
+---
+
+<div align="center">
+  <table>
+    <tr>
+      <td style="vertical-align: middle;">
+        <img src="./assets/LiteWrite.png"
+             width="56"
+             height="56"
+             alt="LiteWrite"
+             style="border-radius: 12px;" />
+      </td>
+      <td style="vertical-align: middle; padding-left: 12px;">
+        <a href="https://litewrite.ai">
+          <img src="https://img.shields.io/badge/🚀%20LiteWrite-AI%20原生%20LaTeX%20编辑器-ff6b6b?style=for-the-badge&logoColor=white&labelColor=1a1a2e">
+        </a>
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
@@ -272,7 +293,7 @@ pip install -e '.[all]'
 mineru --version
 
 # 检查是否正确配置
-python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU安装正常' if rag.check_mineru_installation() else '❌ MinerU安装有问题')"
+python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU安装正常' if rag.check_parser_installation() else '❌ MinerU安装有问题')"
 ```
 
 模型在首次使用时自动下载。手动下载参考[MinerU模型源配置](https://github.com/opendatalab/MinerU/blob/master/README_zh-CN.md#22-%E6%A8%A1%E5%9E%8B%E6%BA%90%E9%85%8D%E7%BD%AE)：
@@ -283,6 +304,7 @@ python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ 
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything, RAGAnythingConfig
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -368,8 +390,8 @@ async def main():
     embedding_func = EmbeddingFunc(
         embedding_dim=3072,
         max_token_size=8192,
-        func=lambda texts: openai_embed(
-            texts,
+        func=partial(
+            openai_embed.func,
             model="text-embedding-3-large",
             api_key=api_key,
             base_url=base_url,
@@ -421,6 +443,7 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
+from functools import partial
 from lightrag import LightRAG
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -446,8 +469,8 @@ async def process_multimodal_content():
         embedding_func=EmbeddingFunc(
             embedding_dim=3072,
             max_token_size=8192,
-            func=lambda texts: openai_embed(
-                texts,
+            func=partial(
+                openai_embed.func,
                 model="text-embedding-3-large",
                 api_key=api_key,
                 base_url=base_url,
@@ -487,8 +510,8 @@ async def process_multimodal_content():
 
     image_content = {
         "img_path": "path/to/image.jpg",
-        "img_caption": ["图1：实验结果"],
-        "img_footnote": ["数据收集于2024年"]
+        "image_caption": ["图1：实验结果"],
+        "image_footnote": ["数据收集于2024年"]
     }
 
     description, entity_info = await image_processor.process_multimodal_content(
@@ -636,6 +659,7 @@ equation_result = await rag.aquery_with_multimodal(
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything
 from lightrag import LightRAG
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
@@ -671,8 +695,8 @@ async def load_existing_lightrag():
         embedding_func=EmbeddingFunc(
             embedding_dim=3072,
             max_token_size=8192,
-            func=lambda texts: openai_embed(
-                texts,
+            func=partial(
+                openai_embed.func,
                 model="text-embedding-3-large",
                 api_key=api_key,
                 base_url=base_url,
@@ -764,6 +788,7 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything, RAGAnythingConfig
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -834,8 +859,8 @@ async def insert_content_list_example():
     embedding_func = EmbeddingFunc(
         embedding_dim=3072,
         max_token_size=8192,
-        func=lambda texts: openai_embed(
-            texts,
+        func=partial(
+            openai_embed.func,
             model="text-embedding-3-large",
             api_key=api_key,
             base_url=base_url,
@@ -860,8 +885,8 @@ async def insert_content_list_example():
         {
             "type": "image",
             "img_path": "/absolute/path/to/figure1.jpg",  # 重要：使用绝对路径
-            "img_caption": ["图1：系统架构"],
-            "img_footnote": ["来源：作者原创设计"],
+            "image_caption": ["图1：系统架构"],
+            "image_footnote": ["来源：作者原创设计"],
             "page_idx": 1  # 此图像出现的页码
         },
         {
@@ -931,7 +956,7 @@ if __name__ == "__main__":
 `content_list` 应遵循标准格式，每个项目都是包含以下内容的字典：
 
 - **文本内容**: `{"type": "text", "text": "内容文本", "page_idx": 0}`
-- **图像内容**: `{"type": "image", "img_path": "/absolute/path/to/image.jpg", "img_caption": ["标题"], "img_footnote": ["注释"], "page_idx": 1}`
+- **图像内容**: `{"type": "image", "img_path": "/absolute/path/to/image.jpg", "image_caption": ["标题"], "image_footnote": ["注释"], "page_idx": 1}`
 - **表格内容**: `{"type": "table", "table_body": "markdown表格", "table_caption": ["标题"], "table_footnote": ["注释"], "page_idx": 2}`
 - **公式内容**: `{"type": "equation", "latex": "LaTeX公式", "text": "描述", "page_idx": 3}`
 - **通用内容**: `{"type": "custom_type", "content": "任何内容", "page_idx": 4}`
@@ -1068,9 +1093,9 @@ await rag.process_document_complete(
     end_page=10,                 # 结束页码（0为基准，适用于PDF）
     formula=True,                # 启用公式解析
     table=True,                  # 启用表格解析
-    backend="pipeline",          # 解析后端：pipeline|vlm-transformers|vlm-sglang-engine|vlm-sglang-client
+    backend="pipeline",          # 解析后端：pipeline|hybrid-auto-engine|hybrid-http-client|vlm-auto-engine|vlm-http-client
     source="huggingface",        # 模型源："huggingface", "modelscope", "local"
-    # vlm_url="http://127.0.0.1:3000" # 当backend=vlm-sglang-client时，需指定服务地址
+    # vlm_url="http://127.0.0.1:3000" # 当backend=vlm-http-client时，需指定服务地址
 
     # RAGAnything标准参数
     display_stats=True,          # 显示内容统计信息
@@ -1127,13 +1152,14 @@ await rag.process_document_complete(
 </div>
 
 ```bibtex
-@article{guo2024lightrag,
-  title={LightRAG: Simple and Fast Retrieval-Augmented Generation},
-  author={Zirui Guo and Lianghao Xia and Yanhua Yu and Tu Ao and Chao Huang},
-  year={2024},
-  eprint={2410.05779},
-  archivePrefix={arXiv},
-  primaryClass={cs.IR}
+@misc{guo2025raganythingallinoneragframework,
+      title={RAG-Anything: All-in-One RAG Framework},
+      author={Zirui Guo and Xubin Ren and Lingrui Xu and Jiahao Zhang and Chao Huang},
+      year={2025},
+      eprint={2510.12323},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2510.12323},
 }
 ```
 

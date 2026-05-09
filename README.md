@@ -4,7 +4,9 @@
   <img src="./assets/logo.png" width="120" height="120" alt="RAG-Anything Logo" style="border-radius: 20px; box-shadow: 0 8px 32px rgba(0, 217, 255, 0.3);">
 </div>
 
-# 🚀 RAG-Anything: All-in-One RAG System
+# 🚀 RAG-Anything: All-in-One RAG Framework
+
+<a href="https://trendshift.io/repositories/14959" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14959" alt="HKUDS%2FRAG-Anything | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 <div align="center">
   <img src="https://readme-typing-svg.herokuapp.com?font=Orbitron&size=24&duration=3000&pause=1000&color=00D9FF&center=true&vCenter=true&width=600&lines=Welcome+to+RAG-Anything;Next-Gen+Multimodal+RAG+System;Powered+by+Advanced+AI+Technology" alt="Typing Animation" />
@@ -14,13 +16,14 @@
   <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 25px; text-align: center;">
     <p>
       <a href='https://github.com/HKUDS/RAG-Anything'><img src='https://img.shields.io/badge/🔥Project-Page-00d9ff?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a2e'></a>
-      <a href='https://arxiv.org/abs/2410.05779'><img src='https://img.shields.io/badge/📄arXiv-2410.05779-ff6b6b?style=for-the-badge&logo=arxiv&logoColor=white&labelColor=1a1a2e'></a>
+      <a href='https://arxiv.org/abs/2510.12323'><img src='https://img.shields.io/badge/📄arXiv-2510.12323-ff6b6b?style=for-the-badge&logo=arxiv&logoColor=white&labelColor=1a1a2e'></a>
       <a href='https://github.com/HKUDS/LightRAG'><img src='https://img.shields.io/badge/⚡Based%20on-LightRAG-4ecdc4?style=for-the-badge&logo=lightning&logoColor=white&labelColor=1a1a2e'></a>
     </p>
     <p>
       <a href="https://github.com/HKUDS/RAG-Anything/stargazers"><img src='https://img.shields.io/github/stars/HKUDS/RAG-Anything?color=00d9ff&style=for-the-badge&logo=star&logoColor=white&labelColor=1a1a2e' /></a>
       <img src="https://img.shields.io/badge/🐍Python-3.10-4ecdc4?style=for-the-badge&logo=python&logoColor=white&labelColor=1a1a2e">
       <a href="https://pypi.org/project/raganything/"><img src="https://img.shields.io/pypi/v/raganything.svg?style=for-the-badge&logo=pypi&logoColor=white&labelColor=1a1a2e&color=ff6b6b"></a>
+      <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/⚡uv-Ready-ff6b6b?style=for-the-badge&logo=python&logoColor=white&labelColor=1a1a2e"></a>
     </p>
     <p>
       <a href="https://discord.gg/yF2MmDJyGJ"><img src="https://img.shields.io/badge/💬Discord-Community-7289da?style=for-the-badge&logo=discord&logoColor=white&labelColor=1a1a2e"></a>
@@ -47,11 +50,33 @@
 
 ---
 
+<div align="center">
+  <table>
+    <tr>
+      <td style="vertical-align: middle;">
+        <img src="./assets/LiteWrite.png"
+             width="56"
+             height="56"
+             alt="LiteWrite"
+             style="border-radius: 12px;" />
+      </td>
+      <td style="vertical-align: middle; padding-left: 12px;">
+        <a href="https://litewrite.ai">
+          <img src="https://img.shields.io/badge/🚀%20LiteWrite-AI%20Native%20LaTeX%20Editor-ff6b6b?style=for-the-badge&logoColor=white&labelColor=1a1a2e">
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## 🎉 News
-- [X] [2025.08.12]🎯📢 🔍 RAG-Anything now features **VLM-Enhanced Query** mode! When documents include images, the system seamlessly integrates them into VLM for advanced multimodal analysis, combining visual and textual context for deeper insights.
-- [X] [2025.07.05]🎯📢 RAG-Anything now features a [context configuration module](docs/context_aware_processing.md), enabling intelligent integration of relevant contextual information to enhance multimodal content processing.
-- [X] [2025.07.04]🎯📢 🚀 RAG-Anything now supports multimodal query capabilities, enabling enhanced RAG with seamless processing of text, images, tables, and equations.
-- [X] [2025.07.03]🎯📢 🎉 RAG-Anything has reached 1k🌟 stars on GitHub! Thank you for your incredible support and valuable contributions to the project.
+- [X] [2025.10]🎯📢 🚀 We have released the technical report of [RAG-Anything](http://arxiv.org/abs/2510.12323). Access it now to explore our latest research findings.
+- [X] [2025.08]🎯📢 🔍 RAG-Anything now features **VLM-Enhanced Query** mode! When documents include images, the system seamlessly integrates them into VLM for advanced multimodal analysis, combining visual and textual context for deeper insights.
+- [X] [2025.07]🎯📢 RAG-Anything now features a [context configuration module](docs/context_aware_processing.md), enabling intelligent integration of relevant contextual information to enhance multimodal content processing.
+- [X] [2025.07]🎯📢 🚀 RAG-Anything now supports multimodal query capabilities, enabling enhanced RAG with seamless processing of text, images, tables, and equations.
+- [X] [2025.07]🎯📢 🎉 RAG-Anything has reached 1k🌟 stars on GitHub! Thank you for your incredible support and valuable contributions to the project.
 
 ---
 
@@ -245,14 +270,26 @@ pip install 'raganything[image,text]'       # Multiple features
 ```
 
 #### Option 2: Install from Source
-
 ```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and setup the project with uv
 git clone https://github.com/HKUDS/RAG-Anything.git
 cd RAG-Anything
-pip install -e .
 
-# With optional dependencies
-pip install -e '.[all]'
+# Install the package and dependencies in a virtual environment
+uv sync
+
+# If you encounter network timeouts (especially for opencv packages):
+# UV_HTTP_TIMEOUT=120 uv sync
+
+# Run commands directly with uv (recommended approach)
+uv run python examples/raganything_example.py --help
+
+# Install with optional dependencies
+uv sync --extra image --extra text  # Specific extras
+uv sync --all-extras                 # All optional features
 ```
 
 #### Optional Dependencies
@@ -276,7 +313,7 @@ pip install -e '.[all]'
 mineru --version
 
 # Check if properly configured
-python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU installed properly' if rag.check_mineru_installation() else '❌ MinerU installation issue')"
+python -c "from raganything import RAGAnything; rag = RAGAnything(); print('✅ MinerU installed properly' if rag.check_parser_installation() else '❌ MinerU installation issue')"
 ```
 
 Models are downloaded automatically on first use. For manual download, refer to [MinerU Model Source Configuration](https://github.com/opendatalab/MinerU/blob/master/README.md#22-model-source-configuration).
@@ -287,6 +324,7 @@ Models are downloaded automatically on first use. For manual download, refer to 
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything, RAGAnythingConfig
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -299,7 +337,7 @@ async def main():
     # Create RAGAnything configuration
     config = RAGAnythingConfig(
         working_dir="./rag_storage",
-        parser="mineru",  # Parser selection: mineru or docling
+        parser="mineru",  # Parser selection: mineru, docling, or paddleocr
         parse_method="auto",  # Parse method: auto, ocr, or txt
         enable_image_processing=True,
         enable_table_processing=True,
@@ -372,8 +410,8 @@ async def main():
     embedding_func = EmbeddingFunc(
         embedding_dim=3072,
         max_token_size=8192,
-        func=lambda texts: openai_embed(
-            texts,
+        func=partial(
+            openai_embed.func,
             model="text-embedding-3-large",
             api_key=api_key,
             base_url=base_url,
@@ -423,6 +461,7 @@ if __name__ == "__main__":
 
 ```python
 import asyncio
+from functools import partial
 from lightrag import LightRAG
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -448,8 +487,8 @@ async def process_multimodal_content():
         embedding_func=EmbeddingFunc(
             embedding_dim=3072,
             max_token_size=8192,
-            func=lambda texts: openai_embed(
-                texts,
+            func=partial(
+                openai_embed.func,
                 model="text-embedding-3-large",
                 api_key=api_key,
                 base_url=base_url,
@@ -489,8 +528,8 @@ async def process_multimodal_content():
 
     image_content = {
         "img_path": "path/to/image.jpg",
-        "img_caption": ["Figure 1: Experimental results"],
-        "img_footnote": ["Data collected in 2024"]
+        "image_caption": ["Figure 1: Experimental results"],
+        "image_footnote": ["Data collected in 2024"]
     }
 
     description, entity_info = await image_processor.process_multimodal_content(
@@ -638,6 +677,7 @@ equation_result = await rag.aquery_with_multimodal(
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything, RAGAnythingConfig
 from lightrag import LightRAG
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
@@ -674,8 +714,8 @@ async def load_existing_lightrag():
         embedding_func=EmbeddingFunc(
             embedding_dim=3072,
             max_token_size=8192,
-            func=lambda texts: openai_embed(
-                texts,
+            func=partial(
+                openai_embed.func,
                 model="text-embedding-3-large",
                 api_key=api_key,
                 base_url=base_url,
@@ -767,6 +807,7 @@ For scenarios where you already have a pre-parsed content list (e.g., from exter
 
 ```python
 import asyncio
+from functools import partial
 from raganything import RAGAnything, RAGAnythingConfig
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed
 from lightrag.utils import EmbeddingFunc
@@ -837,8 +878,8 @@ async def insert_content_list_example():
     embedding_func = EmbeddingFunc(
         embedding_dim=3072,
         max_token_size=8192,
-        func=lambda texts: openai_embed(
-            texts,
+        func=partial(
+            openai_embed.func,
             model="text-embedding-3-large",
             api_key=api_key,
             base_url=base_url,
@@ -863,8 +904,8 @@ async def insert_content_list_example():
         {
             "type": "image",
             "img_path": "/absolute/path/to/figure1.jpg",  # IMPORTANT: Use absolute path
-            "img_caption": ["Figure 1: System Architecture"],
-            "img_footnote": ["Source: Authors' original design"],
+            "image_caption": ["Figure 1: System Architecture"],
+            "image_footnote": ["Source: Authors' original design"],
             "page_idx": 1  # Page number where this image appears
         },
         {
@@ -934,7 +975,7 @@ if __name__ == "__main__":
 The `content_list` should follow the standard format with each item being a dictionary containing:
 
 - **Text content**: `{"type": "text", "text": "content text", "page_idx": 0}`
-- **Image content**: `{"type": "image", "img_path": "/absolute/path/to/image.jpg", "img_caption": ["caption"], "img_footnote": ["note"], "page_idx": 1}`
+- **Image content**: `{"type": "image", "img_path": "/absolute/path/to/image.jpg", "image_caption": ["caption"], "image_footnote": ["note"], "page_idx": 1}`
 - **Table content**: `{"type": "table", "table_body": "markdown table", "table_caption": ["caption"], "table_footnote": ["note"], "page_idx": 2}`
 - **Equation content**: `{"type": "equation", "latex": "LaTeX formula", "text": "description", "page_idx": 3}`
 - **Generic content**: `{"type": "custom_type", "content": "any content", "page_idx": 4}`
@@ -1010,7 +1051,7 @@ Create a `.env` file (refer to `.env.example`):
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_BASE_URL=your_base_url  # Optional
 OUTPUT_DIR=./output             # Default output directory for parsed documents
-PARSER=mineru                   # Parser selection: mineru or docling
+PARSER=mineru                   # Parser selection: mineru, docling, or paddleocr
 PARSE_METHOD=auto              # Parse method: auto, ocr, or txt
 ```
 
@@ -1033,6 +1074,21 @@ RAGAnything now supports multiple parsers, each with specific advantages:
 - Better document structure preservation
 - Native support for multiple Office formats
 
+#### PaddleOCR Parser
+- OCR-focused parser for images and PDFs
+- Produces text blocks compatible with existing `content_list` processing
+- Supports optional Office/TXT/MD parsing by converting to PDF first
+
+Install PaddleOCR parser extras:
+
+```bash
+pip install -e ".[paddleocr]"
+# or
+uv sync --extra paddleocr
+```
+
+> **Note**: PaddleOCR also requires `paddlepaddle` (CPU/GPU package varies by platform). Install it with the official guide: https://www.paddlepaddle.org.cn/install/quick
+
 ### MinerU Configuration
 
 ```bash
@@ -1054,7 +1110,7 @@ await rag.process_document_complete(
     file_path="document.pdf",
     output_dir="./output/",
     parse_method="auto",          # or "ocr", "txt"
-    parser="mineru"               # Optional: "mineru" or "docling"
+    parser="mineru"               # Optional: "mineru", "docling", or "paddleocr"
 )
 
 # Advanced parsing configuration with special parameters
@@ -1062,7 +1118,7 @@ await rag.process_document_complete(
     file_path="document.pdf",
     output_dir="./output/",
     parse_method="auto",          # Parsing method: "auto", "ocr", "txt"
-    parser="mineru",              # Parser selection: "mineru" or "docling"
+    parser="mineru",              # Parser selection: "mineru", "docling", or "paddleocr"
 
     # MinerU special parameters - all supported kwargs:
     lang="ch",                   # Document language for OCR optimization (e.g., "ch", "en", "ja")
@@ -1071,9 +1127,9 @@ await rag.process_document_complete(
     end_page=10,                 # Ending page number (0-based, for PDF)
     formula=True,                # Enable formula parsing
     table=True,                  # Enable table parsing
-    backend="pipeline",          # Parsing backend: pipeline|vlm-transformers|vlm-sglang-engine|vlm-sglang-client.
+    backend="pipeline",          # Parsing backend: pipeline|hybrid-auto-engine|hybrid-http-client|vlm-auto-engine|vlm-http-client.
     source="huggingface",        # Model source: "huggingface", "modelscope", "local"
-    # vlm_url="http://127.0.0.1:3000" # Service address when using backend=vlm-sglang-client
+    # vlm_url="http://127.0.0.1:3000" # Service address when using backend=vlm-http-client
 
     # Standard RAGAnything parameters
     display_stats=True,          # Display content statistics
@@ -1082,7 +1138,7 @@ await rag.process_document_complete(
 )
 ```
 
-> **Note**: MinerU 2.0 no longer uses the `magic-pdf.json` configuration file. All settings are now passed as command-line parameters or function arguments. RAG-Anything now supports multiple document parsers - you can choose between MinerU and Docling based on your needs.
+> **Note**: MinerU 2.0 no longer uses the `magic-pdf.json` configuration file. All settings are now passed as command-line parameters or function arguments. RAG-Anything supports multiple document parsers, including MinerU, Docling, and PaddleOCR.
 
 ### Processing Requirements
 
@@ -1091,6 +1147,7 @@ Different content types require specific optional dependencies:
 - **Office Documents** (.doc, .docx, .ppt, .pptx, .xls, .xlsx): Install [LibreOffice](https://www.libreoffice.org/download/download/)
 - **Extended Image Formats** (.bmp, .tiff, .gif, .webp): Install with `pip install raganything[image]`
 - **Text Files** (.txt, .md): Install with `pip install raganything[text]`
+- **PaddleOCR Parser** (`parser="paddleocr"`): Install with `pip install raganything[paddleocr]`, then install `paddlepaddle` for your platform
 
 > **📋 Quick Install**: Use `pip install raganything[all]` to enable all format support (Python dependencies only - LibreOffice still needs separate installation)
 
@@ -1132,13 +1189,14 @@ Different content types require specific optional dependencies:
 If you find RAG-Anything useful in your research, please cite our paper:
 
 ```bibtex
-@article{guo2024lightrag,
-  title={LightRAG: Simple and Fast Retrieval-Augmented Generation},
-  author={Zirui Guo and Lianghao Xia and Yanhua Yu and Tu Ao and Chao Huang},
-  year={2024},
-  eprint={2410.05779},
-  archivePrefix={arXiv},
-  primaryClass={cs.IR}
+@misc{guo2025raganythingallinoneragframework,
+      title={RAG-Anything: All-in-One RAG Framework},
+      author={Zirui Guo and Xubin Ren and Lingrui Xu and Jiahao Zhang and Chao Huang},
+      year={2025},
+      eprint={2510.12323},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2510.12323},
 }
 ```
 
